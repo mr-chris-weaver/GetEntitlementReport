@@ -19,10 +19,8 @@ $baseUrl = "https://your_BT_server/BeyondTrust/api/public/v3/";
 
 
 # OAuth 2.0 Client Credentials
-$oauthTokenUrl = "https://your_oauth_server/oauth2/token"  # Set your OAuth token endpoint
 $clientId = "your_client_id"  # Set your client_id
 $clientSecret = "your_client_secret"  # Set your client_secret
-$oauthScope = "api_scope"  # Set your scope if required, else leave blank
 $script:accessToken = $null
 
 
@@ -32,7 +30,7 @@ $script:accessToken = $null
 #None
 #BICertificate
 #SmartCardLogon
-$clientCertificateType = "BICertificate";
+$clientCertificateType = "None";
 
 #Verbose logging?
 $verbose = $True;
@@ -74,12 +72,11 @@ function PSafe-BuildUri([string]$api)
 
 
 
-# Gets a new OAuth 2.0 access token using client credentials
+# Gets a new OAuth 2.0 access token using client credentials (Password Safe style)
 function Get-OAuthToken() {
-    $body = @{ grant_type = 'client_credentials'; client_id = $clientId; client_secret = $clientSecret }
-    if ($oauthScope -ne "") { $body.scope = $oauthScope }
-    $response = Invoke-RestMethod -Method Post -Uri $oauthTokenUrl -Body $body -ContentType 'application/x-www-form-urlencoded'
-    $script:accessToken = $response.access_token
+    $Body = "grant_type=client_credentials&client_id=$clientId&client_secret=$clientSecret"
+    $tokenResponse = Invoke-RestMethod -Uri ("{0}BeyondTrust/api/public/v3/auth/connect/token" -f $baseUrl) -Method POST -Body $Body -SessionVariable session
+    $script:accessToken = $tokenResponse.access_token
 }
 
 # Builds and returns the headers for the request
