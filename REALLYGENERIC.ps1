@@ -15,13 +15,16 @@ cls;
 
 
 #Secure Connection
-$baseUrl = "https://your_BT_server/BeyondTrust/api/public/v3/";
+$baseUrl = "https://tenantname.ps.beyondtrustcloud.com/BeyondTrust/api/public/v3/";
 
+#The Application API Key generated in BeyondInsight
+$apiKey = "your-api-key";
 
-# OAuth 2.0 Client Credentials
-$clientId = "your_client_id"  # Set your client_id
-$clientSecret = "your_client_secret"  # Set your client_secret
-$script:accessToken = $null
+#Username of BeyondInsight user granted permission to the API Key
+$runAsUser = "you-api-user";
+
+#Password if required by the API registration
+#$runAsUserPassword = "un1qu3";
 
 
 
@@ -30,7 +33,7 @@ $script:accessToken = $null
 #None
 #BICertificate
 #SmartCardLogon
-$clientCertificateType = "None";
+#$clientCertificateType = "None";
 
 #Verbose logging?
 $verbose = $True;
@@ -57,7 +60,7 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 
 #endregion
 
-$cert= PSafe-FindBICertificate
+#$cert= PSafe-FindBICertificate
 #Script-level Client Certificate
 [System.Security.Cryptography.X509Certificates.X509Certificate2]$script:authCert = $cert;
 
@@ -71,47 +74,74 @@ function PSafe-BuildUri([string]$api)
 }
 
 
-
-# Gets a new OAuth 2.0 access token using client credentials (Password Safe style)
-function Get-OAuthToken() {
-    $Body = "grant_type=client_credentials&client_id=$clientId&client_secret=$clientSecret"
-    $tokenResponse = Invoke-RestMethod -Uri ("{0}BeyondTrust/api/public/v3/auth/connect/token" -f $baseUrl) -Method POST -Body $Body -SessionVariable session
-    $script:accessToken = $tokenResponse.access_token
-}
-
-# Builds and returns the headers for the request
-function PSafe-BuildHeaders() {
-    if (-not $script:accessToken) { Get-OAuthToken }
-    @{ Authorization = "Bearer $($script:accessToken)" }
+#Builds and returns the headers for the request
+function PSafe-BuildHeaders()
+{
+    #Build the Authorization header
+    if ( $script:runAsUserPassword -eq $null )
+    { @{ Authorization="PS-Auth key=${script:apiKey}; runas=${script:runAsUser};"; }; }
+    else
+    { @{ Authorization="PS-Auth key=${script:apiKey}; runas=${script:runAsUser}; pwd=[${script:runAsUserPassword}];"; }; }
 }
 
 #Calls the SignAppin API
+function PSafe-SignAppin()
+{
+    $method = "POST";
+    $uri = PSafe-BuildUri "Auth/SignAppin";
+    $headers = PSafe-BuildHeaders;
 
-# Calls the SignAppin API (now with OAuth)
-function PSafe-SignAppin() {
-    $method = "POST"
-    $uri = PSafe-BuildUri "Auth/SignAppin"
-    $headers = PSafe-BuildHeaders
-
-    try {
-        if ($script:authCert -eq $null) {
-            $result = Invoke-RestMethod -Uri $uri -Method $method -Headers $headers -SessionVariable script:session
-            $result
-        } else {
-            $result = Invoke-RestMethod -Uri $uri -Method $method -Headers $headers -SessionVariable script:session -Certificate $script:authCert
-            $result
+    try
+    {
+        if ($script:authCert -eq $null)
+        {
+            $result = Invoke-RestMethod -Uri $uri -Method $method -Headers $headers -SessionVariable script:session;
+            $result;
         }
-    } catch {
-        throw
+        else
+        {
+            $result = Invoke-RestMethod -Uri $uri -Method $method -Headers $headers -SessionVariable script:session -Certificate $script:authCert;
+            $result;
+        }
     }
+    catch [System.Net.WebException]
+    {
+        #401 with WWW-Authenticate-2FA header expected for two-factor authentication challenge
+        if($_.Exception.Response.StatusCode -eq 401 -and $_.Exception.Response.Headers.Contains("WWW-Authenticate-2FA") -eq $true)
+        {
+            $challengeMessage = $_.Exception.Response.Headers["WWW-Authenticate-2FA"];
+            $challengeResponse = Read-Host $challengeMessage;
+            PSafe-SignAppinChallenge $challengeResponse;
+        }
+        else
+        {
+            throw;
+        }
+    }
+
 }
 
 #Calls the SignAppin API with an Authentication challenge
 #Note: Should only be called after an initial attempt at Auth/SignAppin since it uses the existing Web Session
+function PSafe-SignAppinChallenge($challengeResponse)
+{
+    $method = "POST";
+    $uri = PSafe-BuildUri "Auth/SignAppin";
+    $headers = PSafe-BuildHeaders;
 
-# 2FA challenge is not supported in OAuth client credentials flow, so this is now a stub
-function PSafe-SignAppinChallenge($challengeResponse) {
-    throw "2FA challenge is not supported with OAuth client credentials flow."
+    # add challenge to the Auth header
+    $headers["Authorization"] = "$($headers["Authorization"]) challenge=$($challengeResponse);"; 
+
+    if ($script:authCert -eq $null)
+    {
+        $result = Invoke-RestMethod -Uri $uri -Method $method -Headers $headers -WebSession $script:session;
+        $result;
+    }
+    else
+    {
+        $result = Invoke-RestMethod -Uri $uri -Method $method -Headers $headers -WebSession $script:session -Certificate $script:authCert;
+        $result;
+    }
 }
 
 #Calls the given API
