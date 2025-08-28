@@ -1,4 +1,16 @@
 ﻿# Import Module for performing PSafe functions
+<#
+Pre-reqs:
+Asset Management Read
+Password Safe Account Management Read
+Password Safe Policy Management Read
+Password Safe Role management Read
+Password Safe System management Read
+User Accounts management Read
+
+Using the join object script this script will pull back entitlements, stitch it all together and dump it into a csv 
+#>
+
 Import-Module .\REALLYGENERIC.ps1
 Import-Module .\Join-Object.ps1
 # Import BI cert for authentication
